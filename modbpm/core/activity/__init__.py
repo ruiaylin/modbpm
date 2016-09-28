@@ -41,7 +41,7 @@ class AbstractActivity(object):
         self._register(stackless.tasklet(self.on_start)(*args, **kwargs),
                        obj.name)
 
-    @transaction.atomic  # important!
+    @transaction.atomic  # prevent phantom reads
     def _get_model(self):
         """
         Get model object of this activity.

@@ -5,6 +5,7 @@ modbpm.activity.process
 
 Implementation of process of BPMN activity.
 """
+import contextlib
 import logging
 import stackless
 
@@ -64,7 +65,7 @@ class ActivityHandler(object):
             self.identifier_code = act.identifier_code
             self.token_code = act.token_code
 
-    @transaction.atomic  # Important !
+    @transaction.atomic  # prevent phantom reads
     def _get_model(self):
         identifier_code = getattr(self, 'identifier_code', None)
 
@@ -162,7 +163,7 @@ class LooseScheduleMixin(object):
         pass
 
 
-class AbstractProcess(DefaultScheduleMixin, AbstractActivity):
+class AbstractProcess(AbstractActivity):
 
     __metaclass__ = ABCMeta
 
@@ -206,6 +207,32 @@ class AbstractProcess(DefaultScheduleMixin, AbstractActivity):
         (data, ex_data, return_code), _ = clean(data, ex_data, return_code)
         return super(AbstractProcess, self).finish(data, ex_data, return_code)
 
+    def set_serial(self):
+        self._is_parallel = False
+
+    def set_parallel(self):
+        self._is_parallel = True
+
+    @contextlib.contextmanager
+    def run_in_serial(self):
+        original_value = getattr(self, '_is_parallel', False)
+
+        try:
+            self._is_parallel = False
+            yield
+        finally:
+            self._is_parallel = original_value
+
+    @contextlib.contextmanager
+    def run_in_parallel(self):
+        original_value = getattr(self, '_is_parallel', False)
+
+        try:
+            self._is_parallel = True
+            yield
+        finally:
+            self._is_parallel = original_value
+
 
 class AbstractParallelProcess(AbstractProcess):
 
@@ -214,6 +241,11 @@ class AbstractParallelProcess(AbstractProcess):
     def __init__(self, *args, **kwargs):
         super(AbstractParallelProcess, self).__init__(*args, **kwargs)
         self._is_parallel = True
+
+
+class AbstractBaseProcess(DefaultScheduleMixin, AbstractProcess):
+
+    __metaclass__ = ABCMeta
 
 
 def clean(*args, **kwargs):

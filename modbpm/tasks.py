@@ -10,8 +10,8 @@ import logging
 import stackless
 import traceback
 
-from django.db import transaction
 from celery import task
+from celery.exceptions import SoftTimeLimitExceeded
 
 from modbpm import signals, states, exceptions, messages
 from modbpm.models import ActivityModel
@@ -25,6 +25,9 @@ def global_exception_handler(act):
 
     try:
         yield
+    except SoftTimeLimitExceeded, e:
+        # TODO: to be implemented
+        pass
     except exceptions.Finished, e:
         act.finish(*e.args)
     except exceptions.ImportException, e:

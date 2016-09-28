@@ -164,6 +164,8 @@ class ActivityModelManager(models.Manager):
             with transaction.atomic():
                 ActivityRelationship.objects.bulk_create(rels)
 
+        # signals must be sent outside transactions to prevent
+        # phantom reads and transaction deadlocks
         signals.activity_created.send(sender=self.model,
                                       instance=activity)
 
@@ -284,10 +286,9 @@ class ActivityModel(models.Model):
 
         return False
 
-    @transaction.atomic
     def _transit(self, to_state, **kwargs):
         if to_state not in states.TRANSITABLE_STATES:
-            raise RuntimeError("cat not transit to state: %r" % to_state)
+            raise TypeError("cat not transit to state: %r" % to_state)
 
         appointment_flag = 0  # 没有处理预约
         if self.appointment:
@@ -299,7 +300,7 @@ class ActivityModel(models.Model):
                 to_state = self.appointment
                 appointment_flag = 2  # 设置为预约状态
 
-        if states.can_transit(self.state, to_state):
+        if states.can_transit(self.state, to_state) and self.token_code:
             kwargs.update({
                 'token_code': random.randstr(),
                 'state': to_state,
@@ -308,73 +309,76 @@ class ActivityModel(models.Model):
             if appointment_flag:  # 一旦处理了预约，就将其置空
                 kwargs['appointment'] = ''
 
-            sid = transaction.savepoint()
+            original_state = self.state
 
-            if to_state in states.ARCHIVED_STATES:
-                # prepare outputs model if necessary
-                data = kwargs.pop('data', None)
-                ex_data = kwargs.pop('ex_data', None)
-                if not (data is None and ex_data is None):
-                    kwargs['outputs'] = ActivityOutputs.objects.create(
-                        data=data,
-                        ex_data=ex_data,
+            with transaction.atomic():
+                sid = transaction.savepoint()
+
+                if to_state in states.ARCHIVED_STATES:
+                    # prepare outputs model if necessary
+                    data = kwargs.pop('data', None)
+                    ex_data = kwargs.pop('ex_data', None)
+                    if not (data is None and ex_data is None):
+                        kwargs['outputs'] = ActivityOutputs.objects.create(
+                            data=data,
+                            ex_data=ex_data,
+                        )
+
+                    # clear snapshot model foreign key
+                    if isinstance(self.snapshot, ActivitySnapshot):
+                        kwargs['snapshot'] = None
+                        _snapshot_id = self.snapshot_id
+
+                    # set date_archived value to now
+                    kwargs['date_archived'] = now()
+                elif isinstance(kwargs.get('snapshot'), basestring):
+                    snapshot, created = self._update_or_create_snapshot(
+                        kwargs['snapshot']
                     )
+                    if created:
+                        kwargs['snapshot'] = snapshot
+                    else:
+                        del kwargs['snapshot']
 
-                # clear snapshot model foreign key
-                if isinstance(self.snapshot, ActivitySnapshot):
-                    kwargs['snapshot'] = None
-                    _snapshot_id = self.snapshot_id
+                logger.info("transit activity #%s from %r to %r"
+                            % (self.pk, self.state, to_state))
 
-                # set date_archived value to now
-                kwargs['date_archived'] = now()
-            elif isinstance(kwargs.get('snapshot'), basestring):
-                snapshot, created = self._update_or_create_snapshot(
-                    kwargs['snapshot']
-                )
-                if created:
-                    kwargs['snapshot'] = snapshot
-                else:
-                    del kwargs['snapshot']
-
-            logger.info("transit activity #%s from %r to %r"
-                        % (self.pk, self.state, to_state))
-
-            if self.token_code:
                 rows = self.__class__.objects.filter(
                     pk=self.pk,
                     token_code=self.token_code
                 ).update(**kwargs)
-            else:
-                rows = 0
 
-            if rows:
-                _snapshot_id = locals().get('_snapshot_id')
-                if isinstance(_snapshot_id, (int, long)):
-                    ActivitySnapshot.objects.filter(pk=_snapshot_id) \
-                                            .delete()
-                transaction.savepoint_commit(sid)
+                if rows:
+                    _snapshot_id = locals().get('_snapshot_id')
+                    if isinstance(_snapshot_id, (int, long)):
+                        ActivitySnapshot.objects.filter(pk=_snapshot_id) \
+                                                .delete()
+                    transaction.savepoint_commit(sid)
 
-                for k, v in kwargs.iteritems():
-                    setattr(self, k, v)
+                    for k, v in kwargs.iteritems():
+                        setattr(self, k, v)
+                else:
+                    transaction.savepoint_rollback(sid)
 
-                # state change signal
-                sc_signal = getattr(signals,
-                                    'activity_' + to_state.lower(),
-                                    None)
+        if self.state == original_state:
+            logger.info("transit activity #%s failed." % self.pk)
+        else:
+            # state change signal
+            sc_signal = getattr(signals,
+                                'activity_' + to_state.lower(),
+                                None)
 
-                if sc_signal:
-                    logger.info("send signal %r for activity #%s"
-                                % (to_state, self.pk))
-                    sc_signal.send(sender=self.__class__,
-                                   instance=self)
+            if sc_signal:
+                logger.info("send signal %r for activity #%s"
+                            % (to_state, self.pk))
+                # TODO: signals must be sent outside transactions to
+                # prevent phantom reads and transaction deadlocks
+                sc_signal.send(sender=self.__class__,
+                               instance=self)
 
-                if appointment_flag != 2:
-                    logger.info("transit activity #%s success." % self.pk)
-                    return True
-            else:
-                transaction.savepoint_rollback(sid)
-
-        logger.info("transit activity #%s failed." % self.pk)
+            if appointment_flag != 2:
+                logger.info("transit activity #%s success." % self.pk)
+                return True
 
         return False
 
