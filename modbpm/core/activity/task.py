@@ -66,13 +66,8 @@ class AbstractTask(AbstractActivity):
         if hasattr(self, '_interval'):
             countdown = self._interval.next()
             if countdown is not None:
-                MIN_INTERVAL = settings.MODBPM_MIN_SCHEDULE_INTERVAL
-                MAX_INTERVAL = settings.MODBPM_MAX_SCHEDULE_INTERVAL
-
-                if countdown < MIN_INTERVAL:
-                    countdown = MIN_INTERVAL
-                elif countdown > MAX_INTERVAL:
-                    countdown = MAX_INTERVAL
+                countdown = min(countdown, settings.MODBPM_MAX_SCHEDULE_INTERVAL)
+                countdown = max(countdown, settings.MODBPM_MIN_SCHEDULE_INTERVAL)
 
                 model._lazy_transit(states.READY, countdown=countdown)
                 self.schedule_count += 1
