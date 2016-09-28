@@ -14,6 +14,7 @@ import zlib
 
 from django.db import models, transaction
 from django.db.models import F
+from django.utils.timezone import now
 
 from modbpm import signals, states, status
 from modbpm.utils import random, unique
@@ -310,6 +311,7 @@ class ActivityModel(models.Model):
             sid = transaction.savepoint()
 
             if to_state in states.ARCHIVED_STATES:
+                # prepare outputs model if necessary
                 data = kwargs.pop('data', None)
                 ex_data = kwargs.pop('ex_data', None)
                 if not (data is None and ex_data is None):
@@ -318,9 +320,13 @@ class ActivityModel(models.Model):
                         ex_data=ex_data,
                     )
 
+                # clear snapshot model foreign key
                 if isinstance(self.snapshot, ActivitySnapshot):
                     kwargs['snapshot'] = None
                     _snapshot_id = self.snapshot_id
+
+                # set date_archived value to now
+                kwargs['date_archived'] = now()
             elif isinstance(kwargs.get('snapshot'), basestring):
                 snapshot, created = self._update_or_create_snapshot(
                     kwargs['snapshot']

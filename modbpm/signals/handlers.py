@@ -27,8 +27,7 @@ def activity_created_handler(sender, instance, **kwargs):
     """
     activity created handler.
     """
-    r = tasks.initiate.apply_async(args=(instance.pk,),
-                                   countdown=1)
+    r = tasks.initiate.apply_async(args=(instance.pk,))
     logger.info("activity_created_handler #%s %r" % (instance.pk, r))
 
 
@@ -37,8 +36,7 @@ def activity_ready_handler(sender, instance, **kwargs):
     activity ready handler.
     """
     logger.info("activity_ready_handler #%s" % instance.pk)
-    tasks.schedule.apply_async(args=(instance.pk,),
-                               countdown=1)
+    tasks.schedule.apply_async(args=(instance.pk,))
 
 
 def activity_running_handler(sender, instance, **kwargs):

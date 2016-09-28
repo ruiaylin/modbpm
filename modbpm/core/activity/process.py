@@ -31,6 +31,10 @@ class ActivityHandler(object):
     def __call__(self, *args, **kwargs):
         self.process._register(stackless.tasklet(self._start)(*args, **kwargs),
                                self.name)
+
+        if not getattr(self.process, '_is_parallel', False):
+            self.join()
+
         return self
 
     def _start(self, *args, **kwargs):
@@ -93,30 +97,12 @@ class ActivityHandler(object):
         return model.data
 
 
-class AbstractProcess(AbstractActivity):
-
-    __metaclass__ = ABCMeta
-
-    def __init__(self, *args, **kwargs):
-        super(AbstractProcess, self).__init__(*args, **kwargs)
-
-        self._handler_registry = {}
-
-    def _register(self, obj, name, obj_type=None):
-        if obj_type:
-            getattr(self, '_%s_registry' % obj_type)[obj] = name
-        else:
-            super(AbstractProcess, self)._register(obj, name)
-
-    def _bulk_acknowledge(self):
-        pass
+class DefaultScheduleMixin(object):
 
     def _schedule(self):
         model = self._get_model()
         if model.state in states.ARCHIVED_STATES:
             return False
-
-        self._bulk_acknowledge()
 
         finished_handler_num = 0
         archived_handler_num = 0
@@ -145,15 +131,51 @@ class AbstractProcess(AbstractActivity):
             setattr(self, 'archived_handler_num', 0)
             return True
 
-        alive_tasklet_num = 0
-        for tasklet, name in self._registry.iteritems():
-            if tasklet.alive:
-                alive_tasklet_num += 1
+        # test if this activity could be finished implicitly
+        #   1) all of the registered handlers are finished
+        #   2) non of the registered handlers are blocked
+        if finished_handler_num == len(self._handler_registry) \
+                and not blocked_handler_num:
+            # count the amount of alive tasklets
+            alive_tasklet_num = 0
+            for tasklet, name in self._registry.iteritems():
+                if tasklet.alive:
+                    alive_tasklet_num += 1
 
-        if not alive_tasklet_num \
-                and not blocked_handler_num \
-                and finished_handler_num == len(self._handler_registry):
-            self.finish()
+            # finish this activity implicitly only if
+            # non of the registered tasklets are alive
+            if not alive_tasklet_num:
+                self.finish()
+
+
+class StrictScheduleMixin(object):
+
+    def _schedule(self):
+        # TODO: to be implemented
+        pass
+
+
+class LooseScheduleMixin(object):
+
+    def _schedule(self):
+        # TODO: to be implemented
+        pass
+
+
+class AbstractProcess(DefaultScheduleMixin, AbstractActivity):
+
+    __metaclass__ = ABCMeta
+
+    def __init__(self, *args, **kwargs):
+        super(AbstractProcess, self).__init__(*args, **kwargs)
+
+        self._handler_registry = {}
+
+    def _register(self, obj, name, obj_type=None):
+        if obj_type:
+            getattr(self, '_%s_registry' % obj_type)[obj] = name
+        else:
+            super(AbstractProcess, self)._register(obj, name)
 
     def is_parallel(self):
         return getattr(self, '_parallel', False)
@@ -191,7 +213,7 @@ class AbstractParallelProcess(AbstractProcess):
 
     def __init__(self, *args, **kwargs):
         super(AbstractParallelProcess, self).__init__(*args, **kwargs)
-        self._parallel = True
+        self._is_parallel = True
 
 
 def clean(*args, **kwargs):
