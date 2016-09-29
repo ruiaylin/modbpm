@@ -34,7 +34,7 @@ class CompressedIOField(models.BinaryField):
 
     def to_python(self, value):
         value = super(CompressedIOField, self).to_python(value)
-        return pickle.loads(zlib.decompress(value))
+        return pickle.loads(zlib.decompress(str(value)))
 
     def from_db_value(self, value, expression, connection, context):
         return self.to_python(value)
@@ -52,7 +52,7 @@ class CompressedBinaryField(models.BinaryField):
 
     def to_python(self, value):
         value = super(CompressedBinaryField, self).to_python(value)
-        return zlib.decompress(value)
+        return zlib.decompress(str(value))
 
     def from_db_value(self, value, expression, connection, context):
         return self.to_python(value)
