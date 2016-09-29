@@ -86,6 +86,6 @@ class AbstractActivity(object):
         Finish this activity.
         """
         if status_code:
-            raise exceptions.Failed(data=data, ex_data=ex_data, status_code=status_code)
+            raise exceptions.Failed(data, ex_data, status_code)
         else:
-            raise exceptions.Finished(data=data, ex_data=ex_data)
+            raise exceptions.Finished(data, ex_data)

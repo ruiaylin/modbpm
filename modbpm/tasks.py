@@ -52,7 +52,7 @@ def global_exception_handler(act):
 def import_exception_handler():
     try:
         yield
-    except Exception as e:
+    except:
         raise exceptions.ImportException(traceback.format_exc())
 
 
@@ -60,7 +60,7 @@ def import_exception_handler():
 def instantiation_exception_handler():
     try:
         yield
-    except Exception as e:
+    except:
         raise exceptions.InstantiactionException(traceback.format_exc())
 
 
@@ -70,8 +70,7 @@ def runtime_exception_handler(backend):
         yield
     except (exceptions.Finished, exceptions.Failed), e:
         raise e
-    except Exception as e:
-        logger.debug("runtime_exception %s %s" % (e.__class__, e))
+    except:
         raise exceptions.RuntimeException(traceback.format_exc())
 
 
