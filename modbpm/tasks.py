@@ -31,12 +31,20 @@ def global_exception_handler(act):
     except exceptions.Finished, e:
         act.finish(*e.args)
     except exceptions.ImportException, e:
+        logger.debug("global_exception ImportException e=%s" % e)
         act.finish(ex_data=e.message, status_code=1)
     except exceptions.InstantiactionException, e:
+        logger.debug("global_exception InstantiactionException e=%s" % e)
         act.finish(ex_data=e.message, status_code=2)
     except exceptions.RuntimeException, e:
+        logger.debug("global_exception RuntimeException e=%s" % e)
         act.finish(ex_data=e.message, status_code=3)
-    except:
+    except exceptions.Failed, e:
+        act.finish(ex_data=e.ex_data, status_code=1)
+    except exceptions.Finished, e:
+        act.finish(ex_data=e.ex_data, status_code=0)
+    except Exception as e:
+        logger.debug("global_exception e=%s" % e)
         act.finish(ex_data=traceback.format_exc(), status_code=1)
 
 
@@ -44,7 +52,7 @@ def global_exception_handler(act):
 def import_exception_handler():
     try:
         yield
-    except:
+    except Exception as e:
         raise exceptions.ImportException(traceback.format_exc())
 
 
@@ -52,7 +60,7 @@ def import_exception_handler():
 def instantiation_exception_handler():
     try:
         yield
-    except:
+    except Exception as e:
         raise exceptions.InstantiactionException(traceback.format_exc())
 
 
@@ -62,7 +70,8 @@ def runtime_exception_handler(backend):
         yield
     except (exceptions.Finished, exceptions.Failed), e:
         raise e
-    except:
+    except Exception as e:
+        logger.debug("runtime_exception %s %s" % (e.__class__, e))
         raise exceptions.RuntimeException(traceback.format_exc())
 
 
@@ -129,7 +138,10 @@ def schedule(act_id):
         with global_exception_handler(act):
             if act._transit(states.RUNNING):
                 backend = pickle.loads(act.snapshot.data)
-
+                sensitive_level = getattr(backend, "_sensitive_level", "NORMAL")
+                if sensitive_level == "SENSITIVE":
+                    # 直接schedule会导致任务继续执行
+                    pass
                 with runtime_exception_handler(backend):
                     backend._resume()
 

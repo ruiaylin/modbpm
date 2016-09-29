@@ -34,7 +34,7 @@ class CompressedIOField(models.BinaryField):
 
     def to_python(self, value):
         value = super(CompressedIOField, self).to_python(value)
-        return pickle.loads(zlib.decompress(value))
+        return pickle.loads(zlib.decompress(str(value)))
 
     def from_db_value(self, value, expression, connection, context):
         return self.to_python(value)
@@ -52,7 +52,7 @@ class CompressedBinaryField(models.BinaryField):
 
     def to_python(self, value):
         value = super(CompressedBinaryField, self).to_python(value)
-        return zlib.decompress(value)
+        return zlib.decompress(str(value))
 
     def from_db_value(self, value, expression, connection, context):
         return self.to_python(value)
@@ -300,6 +300,7 @@ class ActivityModel(models.Model):
                 to_state = self.appointment
                 appointment_flag = 2  # 设置为预约状态
 
+        original_state = self.state
         if states.can_transit(self.state, to_state) and self.token_code:
             kwargs.update({
                 'token_code': random.randstr(),
@@ -308,8 +309,6 @@ class ActivityModel(models.Model):
 
             if appointment_flag:  # 一旦处理了预约，就将其置空
                 kwargs['appointment'] = ''
-
-            original_state = self.state
 
             with transaction.atomic():
                 sid = transaction.savepoint()

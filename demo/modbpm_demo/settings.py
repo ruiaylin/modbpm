@@ -78,10 +78,11 @@ WSGI_APPLICATION = 'modbpm_demo.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'modbpm_demo',
-        'USER': 'modbpm_demo',
-        'PASSWORD': 'modbpm_demo@pwd',
+        # 'ENGINE': 'django.db.backends.mysql',
+        'ENGINE': 'mysql.connector.django',
+        'NAME': 'bpmtest',
+        'USER': 'root',
+        'PASSWORD': '1234',
         'HOST': '',
         'PORT': '',
     }

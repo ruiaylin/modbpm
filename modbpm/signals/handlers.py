@@ -72,7 +72,8 @@ def activity_failed_handler(sender, instance, **kwargs):
     """
     activity failed handler.
     """
-    pass
+    logger.info("activity_failed_handler #%s" % instance.pk)
+    wake_up_parent_activity(instance)
 
 
 def wake_up_parent_activity(instance):
