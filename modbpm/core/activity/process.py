@@ -16,14 +16,8 @@ from django.db import transaction
 from modbpm import states, messages
 from modbpm.models import ActivityModel
 from modbpm.core.activity import AbstractActivity
-from modbpm.utils.collections import ConstantDict
 
 logger = logging.getLogger(__name__)
-PROCESS_ERROR_SENSITIVE_LEVEL = ConstantDict((
-    ("NORMAL", "NORMAL"),
-    ("SENSITIVE", "SENSITIVE"),
-    ("INSENSITIVE", "INSENSITIVE"),
-))
 
 
 class ActivityHandler(object):
@@ -36,7 +30,6 @@ class ActivityHandler(object):
         self.process._register(self, self.name, obj_type='handler')
 
     def __call__(self, *args, **kwargs):
-        # todo 参考celery任务调用方式 this(is_parallel=False, sensitive_level="Normal", args=args, kwargs=kwargs) ?
         self.process._register(stackless.tasklet(self._start)(*args, **kwargs),
                                self.name)
 
@@ -94,20 +87,11 @@ class ActivityHandler(object):
     def join(self):
         while True:
             model = self._get_model()
-            if isinstance(model, ActivityModel):
-                logger.debug("join start[%s]" % model.pk)
-                sensitive_level = getattr(self.process, '_sensitive_level',
-                                          PROCESS_ERROR_SENSITIVE_LEVEL["NORMAL"])
-                if sensitive_level == PROCESS_ERROR_SENSITIVE_LEVEL["INSENSITIVE"]:
-                    if model.state in states.ARCHIVED_STATES:
-                        logger.debug("join end-1[%s]" % model.pk)
-                        return
-                else:
-                    if model.state == states.FINISHED:
-                        logger.debug("join end-2[%s]" % model.pk)
-                        return
-
-            stackless.schedule()
+            if isinstance(model, ActivityModel) \
+                    and model.state == states.FINISHED:
+                return model
+            else:
+                stackless.schedule()
 
     def read(self):
         model = self.join()
@@ -168,106 +152,15 @@ class DefaultScheduleMixin(object):
 class StrictScheduleMixin(object):
 
     def _schedule(self):
-        model = self._get_model()
-        if model.state in states.ARCHIVED_STATES:
-            return False
-
-        finished_handler_num = 0
-        archived_handler_num = 0
-        blocked_handler_num = 0
-        for handler, name in self._handler_registry.iteritems():
-            sub_act_model = handler._get_model()
-            if sub_act_model is not None:
-                if sub_act_model.state == states.FAILED:
-                    ex_data = "Child [%s]<%s> failed" % (sub_act_model.pk, sub_act_model.name)
-                    self.finish(None, ex_data, 4)  # note: some tasklet may still alive
-
-                if sub_act_model.state in states.ARCHIVED_STATES:
-                    archived_handler_num += 1
-                if sub_act_model.state == states.FINISHED:
-                    finished_handler_num += 1
-            else:
-                blocked_handler_num += 1
-
-        logger.info('activity #%d finished: %d, archived: %d blocked: %d',
-                    self._act_id,
-                    finished_handler_num,
-                    archived_handler_num,
-                    blocked_handler_num)
-
-        if hasattr(self, 'archived_handler_num'):
-            if archived_handler_num != self.archived_handler_num:
-                self.archived_handler_num = archived_handler_num
-                return True
-        else:
-            setattr(self, 'archived_handler_num', 0)
-            return True
-
-        # test if this activity could be finished implicitly
-        #   1) all of the registered handlers are finished
-        #   2) non of the registered handlers are blocked
-        if finished_handler_num == len(self._handler_registry) \
-                and not blocked_handler_num:
-            # count the amount of alive tasklets
-            alive_tasklet_num = 0
-            for tasklet, name in self._registry.iteritems():
-                if tasklet.alive:
-                    alive_tasklet_num += 1
-
-            # finish this activity implicitly only if
-            # non of the registered tasklets are alive
-            if not alive_tasklet_num:
-                self.finish()
+        # TODO: to be implemented
+        pass
 
 
 class LooseScheduleMixin(object):
 
     def _schedule(self):
-        model = self._get_model()
-        if model.state in states.ARCHIVED_STATES:
-            return False
-
-        done_handler_num = 0
-        archived_handler_num = 0
-        blocked_handler_num = 0
-        for handler, name in self._handler_registry.iteritems():
-            sub_act_model = handler._get_model()
-            if sub_act_model is not None:
-                if sub_act_model.state in states.ARCHIVED_STATES:
-                    archived_handler_num += 1
-                    done_handler_num += 1
-            else:
-                blocked_handler_num += 1
-
-        logger.info('activity #%d finished: %d, archived: %d blocked: %d',
-                    self._act_id,
-                    done_handler_num,
-                    archived_handler_num,
-                    blocked_handler_num)
-
-        if hasattr(self, 'archived_handler_num'):
-            if archived_handler_num != self.archived_handler_num:
-                self.archived_handler_num = archived_handler_num
-                return True
-        else:
-            setattr(self, 'archived_handler_num', 0)
-            return True
-
-        # test if this activity could be finished implicitly
-        #   1) all of the registered handlers are finished
-        #   2) non of the registered handlers are blocked
-        if done_handler_num == len(self._handler_registry) \
-                and not blocked_handler_num:
-            # count the amount of alive tasklets
-            alive_tasklet_num = 0
-            for tasklet, name in self._registry.iteritems():
-                if tasklet.alive:
-                    alive_tasklet_num += 1
-
-            # finish this activity implicitly only if
-            # non of the registered tasklets are alive
-            if not alive_tasklet_num:
-                self.finish()
+        # TODO: to be implemented
+        pass
 
 
 class AbstractProcess(AbstractActivity):
@@ -287,17 +180,6 @@ class AbstractProcess(AbstractActivity):
 
     def is_parallel(self):
         return getattr(self, '_parallel', False)
-
-    def sensitive_level(self):
-        return getattr(self, '_sensitive_level',
-                       PROCESS_ERROR_SENSITIVE_LEVEL["NORMAL"])
-
-    def set_sensitive_level(self, level):
-        if level not in PROCESS_ERROR_SENSITIVE_LEVEL:
-            raise ValueError("require available level, [%s]" %
-                             PROCESS_ERROR_SENSITIVE_LEVEL)
-        return getattr(self, '_sensitive_level',
-                       PROCESS_ERROR_SENSITIVE_LEVEL["NORMAL"])
 
     def start(self, activity, predecessors=None):
         assert issubclass(activity, AbstractActivity)
@@ -364,30 +246,6 @@ class AbstractParallelProcess(AbstractProcess):
 class AbstractBaseProcess(DefaultScheduleMixin, AbstractProcess):
 
     __metaclass__ = ABCMeta
-
-
-class AbstractLooseProcess(LooseScheduleMixin, AbstractProcess):
-
-    __metaclass__ = ABCMeta
-    _sensitive_level = PROCESS_ERROR_SENSITIVE_LEVEL["INSENSITIVE"]
-
-
-class AbstractLooseParallelProcess(AbstractParallelProcess, AbstractLooseProcess):
-
-    __metaclass__ = ABCMeta
-    _sensitive_level = PROCESS_ERROR_SENSITIVE_LEVEL["INSENSITIVE"]
-
-
-class AbstractStrictProcess(StrictScheduleMixin, AbstractProcess):
-
-    __metaclass__ = ABCMeta
-    _sensitive_level = PROCESS_ERROR_SENSITIVE_LEVEL["SENSITIVE"]
-
-
-class AbstractStrictParallelProcess(AbstractParallelProcess, AbstractStrictProcess):
-
-    __metaclass__ = ABCMeta
-    _sensitive_level = PROCESS_ERROR_SENSITIVE_LEVEL["SENSITIVE"]
 
 
 def clean(*args, **kwargs):

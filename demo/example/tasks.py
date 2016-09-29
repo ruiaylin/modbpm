@@ -35,10 +35,3 @@ class HealthCheckUp(AbstractTask):
     def on_schedule(self):
         if self.schedule_count >= 3:
             self.finish()
-
-
-class FailedTask(AbstractTask):
-
-    def on_start(self, name):
-        raise ValueError(name)
-        self.finish()

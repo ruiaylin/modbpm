@@ -106,5 +106,4 @@ def dispatch():
     dispatch_activity_created()
     dispatch_activity_ready()
     dispatch_activity_finished()
-    dispatch_activity_failed()
 
